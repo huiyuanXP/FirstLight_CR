@@ -24,6 +24,14 @@ python -m pytest native_runner/tests -q
 
 The tests cover environment contracts, card mechanics, observations and actions, native layouts, cache encoding, IL/PPO updates, and model serving. Set `CR_INPUT_APK` to enable original-APK fingerprint checks. CUDA tests need a CUDA device, and native C++ tests need `g++`; tests with unavailable prerequisites are skipped.
 
+## Policy loop without an engine
+
+```sh
+python tools/policy_episode.py --engine mock --output runs/mock-episode
+```
+
+This runs one complete headless episode with the included General checkpoint on both sides against an in-memory engine stand-in, so reset, FAIR observations, masks, inference, decoding, step, rewards and episode end can be checked on a CPU-only Linux host. The stand-in only tracks elixir and hand cycling; its matches are not game data. With an idle offline engine, `--engine native --port <port>` runs the same loop and logs against the real game.
+
 ## Native engine
 
 Prepare the VM using the [installation guide](getting_started.md), then run:

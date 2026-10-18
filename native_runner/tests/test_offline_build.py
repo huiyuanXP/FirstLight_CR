@@ -5,7 +5,9 @@ import zipfile
 
 import pytest
 
-from native_runner.offline_build import patch, prepare, relative_file, verify, sha256
+from pathlib import Path
+
+from native_runner.offline_build import CLUSTER_APPLICATION_SMALI, cluster, patch, prepare, relative_file, verify, sha256
 from native_runner.match_factory import MatchConfig
 
 
@@ -77,3 +79,28 @@ def test_synthetic_match_has_no_capture_or_real_account_dependency():
         assert replay["battle"][f"avatar{owner}"]["accountID.lo"] == owner + 1
         assert replay["battle"]["hbd"][owner]["kt"] == 11
         assert len(replay["battle"][f"deck{owner}"]["sp"]) == 8
+
+
+def test_linux_cluster_edits_match_the_windows_cluster_script(tmp_path):
+    script = (Path(__file__).resolve().parents[1] / "build_engine_cluster_apk.ps1").read_text(encoding="utf-8")
+    here_string = script.split('$applicationSmali = @"\n', 1)[1].split('\n"@', 1)[0]
+    assert here_string.replace("`$", "$") == CLUSTER_APPLICATION_SMALI
+    manifest = tmp_path / "AndroidManifest.xml"
+    manifest.write_text(
+        '<manifest>\n    <application android:allowBackup="true">\n'
+        '        <meta-data android:name="io.sentry.auto-init" android:value="false"/>\n'
+        "    </application>\n</manifest>\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "smali/com/supercell/clashroyale").mkdir(parents=True)
+    probe = tmp_path / "libcrprobe.so"
+    probe.write_bytes(b"probe")
+    cluster(tmp_path, probe, 2, debuggable=True)
+    text = manifest.read_text(encoding="utf-8")
+    assert '<application android:name="com.supercell.clashroyale.EngineClusterApplication" android:debuggable="true"' in text
+    assert text.count('android:process=":engine') == 2
+    assert 'android:name="com.supercell.clashroyale.Engine1App" android:process=":engine1"' in text
+    assert (tmp_path / "smali/com/supercell/clashroyale/Engine1App.smali").is_file()
+    assert (tmp_path / "lib/arm64-v8a/libcrprobe.so").read_bytes() == b"probe"
+    with pytest.raises(ValueError, match="between 1 and 24"):
+        cluster(tmp_path, probe, 25)
