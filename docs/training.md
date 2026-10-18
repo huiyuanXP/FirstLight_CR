@@ -68,6 +68,12 @@ The start command reports control ports and capacities for the cache builder. St
 
 Android Emulator hosts need `/dev/kvm`, root adbd, and an Android system image capable of running ARM64 libraries. In the base AVD, manually install the original APK, open it to finish the matching update, and exit. Copy the locally built offline APK and its adjacent `.build.json` receipt to Linux. Place the compiled probe at `native_runner/probe/out/libcrprobe.so`, or set `CR_PROBE`.
 
+The offline APK can also be built on Linux. Set `CR_INPUT_APK`, `CR_NDK_ROOT` (a Linux NDK), and `CR_BUILD_TOOLS` (SDK build-tools with `zipalign` and `apksigner`; both are otherwise taken from `PATH`). `CR_JAVA` and `CR_KEYTOOL` default to `java` and `keytool`. The script verifies the input APK, builds the probe with `native_runner/probe/build_probe.sh`, and writes the same APK and `.build.json` receipt as the Windows build:
+
+```sh
+bash build_offline_engine.sh ./user-provided/nulls-royale.apk ./build/cr-ai-offline.apk 1
+```
+
 ```sh
 python tools/prepare_training_guest.py --serial emulator-5554 --apk /path/to/cr-ai-offline.apk
 ```

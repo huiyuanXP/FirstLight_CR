@@ -94,6 +94,108 @@ def patch(source: Path):
     titan.write_text(text, encoding="utf-8")
 
 
+CLUSTER_APPLICATION_SMALI = """.class public Lcom/supercell/clashroyale/EngineClusterApplication;
+.super Landroid/app/Application;
+
+
+# direct methods
+.method public constructor <init>()V
+    .locals 0
+
+    invoke-direct {p0}, Landroid/app/Application;-><init>()V
+
+    return-void
+.end method
+
+
+# virtual methods
+.method protected attachBaseContext(Landroid/content/Context;)V
+    .locals 4
+
+    invoke-super {p0, p1}, Landroid/app/Application;->attachBaseContext(Landroid/content/Context;)V
+
+    sget v0, Landroid/os/Build$VERSION;->SDK_INT:I
+
+    const/16 v1, 0x1c
+
+    if-lt v0, v1, :done
+
+    invoke-static {}, Landroid/app/Application;->getProcessName()Ljava/lang/String;
+
+    move-result-object v0
+
+    const-string v1, ":engine"
+
+    invoke-virtual {v0, v1}, Ljava/lang/String;->lastIndexOf(Ljava/lang/String;)I
+
+    move-result v2
+
+    if-ltz v2, :done
+
+    add-int/lit8 v2, v2, 0x1
+
+    invoke-virtual {v0, v2}, Ljava/lang/String;->substring(I)Ljava/lang/String;
+
+    move-result-object v3
+
+    const-string v0, "engine0"
+
+    invoke-virtual {v3, v0}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
+
+    move-result v0
+
+    if-nez v0, :done
+
+    invoke-static {v3}, Landroid/webkit/WebView;->setDataDirectorySuffix(Ljava/lang/String;)V
+
+    :done
+    return-void
+.end method"""
+
+
+def cluster(source: Path, probe: Path, engine_count: int, debuggable: bool = False):
+    """Add the engine-cluster manifest entries, smali classes and probe (same edits as build_engine_cluster_apk.ps1)."""
+    if not 1 <= engine_count <= 24:
+        raise ValueError("The cluster APK supports between 1 and 24 engine processes.")
+    package = "nullsroyale.rel.free"
+    manifest = source / "AndroidManifest.xml"
+    text = manifest.read_text(encoding="utf-8")
+    application_anchor = '<application android:allowBackup="true"'
+    manifest_anchor = '        <meta-data android:name="io.sentry.auto-init"'
+    if application_anchor not in text or manifest_anchor not in text:
+        raise ValueError("Could not find the application manifest insertion point.")
+    named = '<application android:name="com.supercell.clashroyale.EngineClusterApplication"'
+    text = text.replace(application_anchor, named + ' android:allowBackup="true"')
+    if debuggable:
+        text = text.replace(named, named + ' android:debuggable="true"')
+    activities = [
+        '        <activity android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|'
+        'screenSize|smallestScreenSize" android:excludeFromRecents="true" android:exported="true" '
+        f'android:launchMode="singleTask" android:name="com.supercell.clashroyale.Engine{engine}App" '
+        f'android:process=":engine{engine}" android:screenOrientation="sensorPortrait" '
+        f'android:taskAffinity="{package}.engine{engine}" android:theme="@android:style/Theme.NoTitleBar.Fullscreen" '
+        'android:windowSoftInputMode="adjustNothing|stateUnchanged"/>'
+        for engine in range(engine_count)
+    ]
+    text = text.replace(manifest_anchor, "\r\n".join(activities) + "\r\n" + manifest_anchor)
+    manifest.write_bytes(text.encode("utf-8"))
+    smali = source / "smali/com/supercell/clashroyale"
+    (smali / "EngineClusterApplication.smali").write_bytes(CLUSTER_APPLICATION_SMALI.encode("utf-8"))
+    for engine in range(engine_count):
+        name = f"Engine{engine}App"
+        (smali / f"{name}.smali").write_bytes(
+            (
+                f".class public Lcom/supercell/clashroyale/{name};\n.super Lcom/supercell/clashroyale/GameApp;\n\n\n"
+                "# direct methods\n.method public constructor <init>()V\n    .locals 0\n\n"
+                "    invoke-direct {p0}, Lcom/supercell/clashroyale/GameApp;-><init>()V\n\n"
+                "    return-void\n.end method"
+            ).encode("utf-8")
+        )
+    destination = source / "lib/arm64-v8a/libcrprobe.so"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(probe, destination)
+
+
 def verify(apk: Path, probe: Path):
     release = supported_engine()
     with zipfile.ZipFile(apk) as archive:
@@ -127,6 +229,11 @@ def main():
     p.add_argument("--workspace", type=Path, required=True)
     p = sub.add_parser("patch")
     p.add_argument("--source", type=Path, required=True)
+    p = sub.add_parser("cluster")
+    p.add_argument("--source", type=Path, required=True)
+    p.add_argument("--probe", type=Path, required=True)
+    p.add_argument("--engine-count", type=int, required=True)
+    p.add_argument("--debuggable", action="store_true")
     p = sub.add_parser("verify")
     p.add_argument("--apk", type=Path, required=True)
     p.add_argument("--probe", type=Path, required=True)
@@ -139,6 +246,8 @@ def main():
         prepare(args.input_apk, args.runtime_update, args.workspace)
     elif args.command == "patch":
         patch(args.source)
+    elif args.command == "cluster":
+        cluster(args.source, args.probe, args.engine_count, args.debuggable)
     else:
         verify(args.apk, args.probe)
 
